@@ -179,10 +179,36 @@ impl VacDownloaderApp {
         // Save to file
         match self.config.save() {
             Ok(_) => {
-                *self.status.lock().unwrap() = OperationStatus::Idle;
-                println!(
-                    "✅ Configuration saved! Restart the application for changes to take effect."
-                );
+                println!("✅ Configuration saved!");
+
+                // Delete the old database file to reset the cache
+                if std::path::Path::new(&self.config.database_path).exists() {
+                    match std::fs::remove_file(&self.config.database_path) {
+                        Ok(_) => println!("🗑️  Deleted old database cache"),
+                        Err(e) => println!("⚠️  Warning: Could not delete old database: {}", e),
+                    }
+                }
+
+                // Reinitialize VacDownloader with new paths (creates fresh database)
+                match vac_downloader::VacDownloader::new(
+                    &self.config.database_path,
+                    &self.config.download_directory,
+                ) {
+                    Ok(new_downloader) => {
+                        *self.downloader.lock().unwrap() = new_downloader;
+                        println!("🔄 VacDownloader reinitialized with new download location");
+                        println!("🗄️  Fresh database created");
+
+                        // Refresh the VAC list to update local availability with new path
+                        self.fetch_vac_list();
+
+                        *self.status.lock().unwrap() = OperationStatus::Idle;
+                    }
+                    Err(e) => {
+                        *self.status.lock().unwrap() =
+                            OperationStatus::Error(format!("Failed to reinitialize: {}", e));
+                    }
+                }
             }
             Err(e) => {
                 *self.status.lock().unwrap() =
@@ -275,7 +301,7 @@ impl eframe::App for VacDownloaderApp {
                     }
                 }
             });
-            ui.label("💡 Restart the application after saving for changes to take effect");
+            ui.label("💡 Warning: changing location will reset the database");
             ui.separator();
 
             ui.heading("Available VAC Charts");
