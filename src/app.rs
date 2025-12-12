@@ -356,55 +356,52 @@ impl eframe::App for VacDownloaderApp {
                         ui.label("No VAC entries loaded. Click Refresh to fetch the list.");
                     });
                 } else {
-                    // Table header
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Select").strong());
-                        ui.separator();
-                        ui.label(egui::RichText::new("OACI Code").strong());
-                        ui.separator();
-                        ui.label(egui::RichText::new("City").strong());
-                        ui.separator();
-                        ui.label(egui::RichText::new("Local").strong());
-                        ui.separator();
-                        ui.label(egui::RichText::new("Actions").strong());
-                    });
-                    ui.separator();
+                    // Use Grid for proper column alignment
+                    egui::Grid::new("vac_table")
+                        .striped(true)
+                        .spacing([10.0, 4.0])
+                        .show(ui, |ui| {
+                            // Table header
+                            ui.label(egui::RichText::new("Select").strong());
+                            ui.label(egui::RichText::new("OACI Code").strong());
+                            ui.label(egui::RichText::new("City").strong());
+                            ui.label(egui::RichText::new("Local").strong());
+                            ui.label(egui::RichText::new("Actions").strong());
+                            ui.end_row();
 
-                    // Table rows
-                    for entry in entries.iter_mut() {
-                        ui.horizontal(|ui| {
-                            ui.checkbox(&mut entry.selected, "");
-                            ui.separator();
-                            ui.label(&entry.entry.oaci);
-                            ui.separator();
-                            ui.label(&entry.entry.city);
-                            ui.separator();
+                            // Table rows
+                            for entry in entries.iter_mut() {
+                                ui.checkbox(&mut entry.selected, "");
+                                ui.label(&entry.entry.oaci);
+                                ui.label(&entry.entry.city);
 
-                            if entry.entry.available_locally {
-                                ui.label(egui::RichText::new("✓").color(egui::Color32::GREEN));
-                            } else {
-                                ui.label(egui::RichText::new("✗").color(egui::Color32::RED));
-                            }
-
-                            ui.separator();
-
-                            // Actions column
-                            if entry.entry.available_locally {
-                                // Update button (always shown for local entries)
-                                if ui
-                                    .add_enabled(!is_busy, egui::Button::new("🔄 Update"))
-                                    .clicked()
-                                {
-                                    update_oaci = Some(entry.entry.oaci.clone());
+                                // Local status icon
+                                if entry.entry.available_locally {
+                                    ui.label(egui::RichText::new("✓").color(egui::Color32::GREEN));
+                                } else {
+                                    ui.label(egui::RichText::new("✗").color(egui::Color32::RED));
                                 }
 
-                                if ui.button("🗑 Delete").clicked() {
-                                    delete_oaci = Some(entry.entry.oaci.clone());
-                                }
+                                // Actions column
+                                ui.horizontal(|ui| {
+                                    if entry.entry.available_locally {
+                                        // Update button (always shown for local entries)
+                                        if ui
+                                            .add_enabled(!is_busy, egui::Button::new("🔄 Update"))
+                                            .clicked()
+                                        {
+                                            update_oaci = Some(entry.entry.oaci.clone());
+                                        }
+
+                                        if ui.button("🗑 Delete").clicked() {
+                                            delete_oaci = Some(entry.entry.oaci.clone());
+                                        }
+                                    }
+                                });
+
+                                ui.end_row();
                             }
                         });
-                        ui.separator();
-                    }
                 }
 
                 drop(entries);
