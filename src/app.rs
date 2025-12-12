@@ -13,6 +13,8 @@ pub struct VacDownloaderApp {
     downloader: Arc<Mutex<vac_downloader::VacDownloader>>,
     /// Application configuration
     config: Config,
+    /// Editable download directory path (for UI input)
+    download_dir_input: String,
     /// Show delete confirmation dialog
     delete_confirmation: Option<String>,
 }
@@ -38,6 +40,7 @@ impl VacDownloaderApp {
             vac_entries: Arc::new(Mutex::new(Vec::new())),
             status: Arc::new(Mutex::new(OperationStatus::Idle)),
             downloader: Arc::new(Mutex::new(downloader)),
+            download_dir_input: config.download_directory.clone(),
             config,
             delete_confirmation: None,
         };
@@ -168,6 +171,25 @@ impl VacDownloaderApp {
             }
         });
     }
+
+    fn save_config(&mut self) {
+        // Update config with new download directory
+        self.config.download_directory = self.download_dir_input.clone();
+
+        // Save to file
+        match self.config.save() {
+            Ok(_) => {
+                *self.status.lock().unwrap() = OperationStatus::Idle;
+                println!(
+                    "✅ Configuration saved! Restart the application for changes to take effect."
+                );
+            }
+            Err(e) => {
+                *self.status.lock().unwrap() =
+                    OperationStatus::Error(format!("Failed to save config: {}", e));
+            }
+        }
+    }
 }
 
 impl eframe::App for VacDownloaderApp {
@@ -227,6 +249,35 @@ impl eframe::App for VacDownloaderApp {
 
         // Central panel with VAC list
         egui::CentralPanel::default().show(ctx, |ui| {
+            // Download location configuration section
+            ui.horizontal(|ui| {
+                ui.label("Download Location:");
+                ui.text_edit_singleline(&mut self.download_dir_input);
+
+                let status_guard = self.status.lock().unwrap();
+                let is_busy = status_guard.is_busy();
+                drop(status_guard);
+
+                if ui
+                    .add_enabled(!is_busy, egui::Button::new("💾 Save"))
+                    .clicked()
+                {
+                    self.save_config();
+                }
+
+                if ui.button("📁 Browse").clicked() {
+                    // Open directory picker dialog
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_directory(&self.download_dir_input)
+                        .pick_folder()
+                    {
+                        self.download_dir_input = path.display().to_string();
+                    }
+                }
+            });
+            ui.label("💡 Restart the application after saving for changes to take effect");
+            ui.separator();
+
             ui.heading("Available VAC Charts");
             ui.separator();
 
