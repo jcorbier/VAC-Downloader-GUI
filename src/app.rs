@@ -4,6 +4,12 @@ use eframe::egui;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum SortColumn {
+    Oaci,
+    City,
+}
+
 pub struct VacDownloaderApp {
     /// List of VAC entries
     vac_entries: Arc<Mutex<Vec<VacEntryWithSelection>>>,
@@ -17,6 +23,10 @@ pub struct VacDownloaderApp {
     download_dir_input: String,
     /// Show delete confirmation dialog
     delete_confirmation: Option<String>,
+    /// Current sort column
+    sort_column: SortColumn,
+    /// Sort ascending or descending
+    sort_ascending: bool,
 }
 
 impl VacDownloaderApp {
@@ -43,6 +53,8 @@ impl VacDownloaderApp {
             download_dir_input: config.download_directory.clone(),
             config,
             delete_confirmation: None,
+            sort_column: SortColumn::Oaci,
+            sort_ascending: true,
         };
 
         // Fetch the VAC list on startup
@@ -206,6 +218,33 @@ impl VacDownloaderApp {
         });
     }
 
+    fn sort_entries(&mut self) {
+        let mut entries = self.vac_entries.lock().unwrap();
+
+        match self.sort_column {
+            SortColumn::Oaci => {
+                entries.sort_by(|a, b| {
+                    let cmp = a.entry.oaci.cmp(&b.entry.oaci);
+                    if self.sort_ascending {
+                        cmp
+                    } else {
+                        cmp.reverse()
+                    }
+                });
+            }
+            SortColumn::City => {
+                entries.sort_by(|a, b| {
+                    let cmp = a.entry.city.cmp(&b.entry.city);
+                    if self.sort_ascending {
+                        cmp
+                    } else {
+                        cmp.reverse()
+                    }
+                });
+            }
+        }
+    }
+
     fn save_config(&mut self) {
         // Update config with new download directory
         self.config.download_directory = self.download_dir_input.clone();
@@ -350,6 +389,7 @@ impl eframe::App for VacDownloaderApp {
                 // Collect actions to perform after releasing the lock
                 let mut update_oaci: Option<String> = None;
                 let mut delete_oaci: Option<String> = None;
+                let mut need_sort = false;
 
                 if entries.is_empty() {
                     ui.centered_and_justified(|ui| {
@@ -361,10 +401,49 @@ impl eframe::App for VacDownloaderApp {
                         .striped(true)
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
-                            // Table header
+                            // Table header with clickable sort columns
                             ui.label(egui::RichText::new("Select").strong());
-                            ui.label(egui::RichText::new("OACI Code").strong());
-                            ui.label(egui::RichText::new("City").strong());
+
+                            // OACI Code column - clickable for sorting
+                            let oaci_label = if self.sort_column == SortColumn::Oaci {
+                                let arrow = if self.sort_ascending { "▲" } else { "▼" };
+                                format!("OACI Code {}", arrow)
+                            } else {
+                                "OACI Code".to_string()
+                            };
+                            if ui
+                                .button(egui::RichText::new(oaci_label).strong())
+                                .clicked()
+                            {
+                                if self.sort_column == SortColumn::Oaci {
+                                    self.sort_ascending = !self.sort_ascending;
+                                } else {
+                                    self.sort_column = SortColumn::Oaci;
+                                    self.sort_ascending = true;
+                                }
+                                need_sort = true;
+                            }
+
+                            // City column - clickable for sorting
+                            let city_label = if self.sort_column == SortColumn::City {
+                                let arrow = if self.sort_ascending { "▲" } else { "▼" };
+                                format!("City {}", arrow)
+                            } else {
+                                "City".to_string()
+                            };
+                            if ui
+                                .button(egui::RichText::new(city_label).strong())
+                                .clicked()
+                            {
+                                if self.sort_column == SortColumn::City {
+                                    self.sort_ascending = !self.sort_ascending;
+                                } else {
+                                    self.sort_column = SortColumn::City;
+                                    self.sort_ascending = true;
+                                }
+                                need_sort = true;
+                            }
+
                             ui.label(egui::RichText::new("Local").strong());
                             ui.label(egui::RichText::new("Actions").strong());
                             ui.end_row();
@@ -407,6 +486,9 @@ impl eframe::App for VacDownloaderApp {
                 drop(entries);
 
                 // Execute actions after releasing the lock
+                if need_sort {
+                    self.sort_entries();
+                }
                 if let Some(oaci) = update_oaci {
                     self.update_vac(oaci);
                 }
