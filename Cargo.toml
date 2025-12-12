@@ -1,0 +1,10 @@
+[package]
+name = "vac-downloader-gui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.29"
+egui = "0.29"
+serde = { version = "1.0", features = ["derive"] }
+vac_downloader = "0.3.0"
