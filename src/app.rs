@@ -172,6 +172,40 @@ impl VacDownloaderApp {
         });
     }
 
+    fn update_vac(&self, oaci_code: String) {
+        let status = self.status.clone();
+        let vac_entries = self.vac_entries.clone();
+        let downloader = self.downloader.clone();
+
+        *status.lock().unwrap() = OperationStatus::Downloading {
+            current: 1,
+            total: 1,
+        };
+
+        thread::spawn(move || {
+            let downloader = downloader.lock().unwrap();
+            // Use sync with specific OACI code to update this entry
+            match downloader.sync(Some(&[oaci_code.clone()])) {
+                Ok(_) => {
+                    // Refresh the list to update the entry
+                    match downloader.list_vacs(None) {
+                        Ok(vacs) => {
+                            let new_entries: Vec<VacEntryWithSelection> =
+                                vacs.into_iter().map(VacEntryWithSelection::new).collect();
+                            *vac_entries.lock().unwrap() = new_entries;
+                        }
+                        Err(_) => {}
+                    }
+                    *status.lock().unwrap() = OperationStatus::Idle;
+                }
+                Err(e) => {
+                    *status.lock().unwrap() =
+                        OperationStatus::Error(format!("Update failed: {}", e));
+                }
+            }
+        });
+    }
+
     fn save_config(&mut self) {
         // Update config with new download directory
         self.config.download_directory = self.download_dir_input.clone();
@@ -309,6 +343,13 @@ impl eframe::App for VacDownloaderApp {
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut entries = self.vac_entries.lock().unwrap();
+                let status_guard = self.status.lock().unwrap();
+                let is_busy = status_guard.is_busy();
+                drop(status_guard);
+
+                // Collect actions to perform after releasing the lock
+                let mut update_oaci: Option<String> = None;
+                let mut delete_oaci: Option<String> = None;
 
                 if entries.is_empty() {
                     ui.centered_and_justified(|ui| {
@@ -347,12 +388,33 @@ impl eframe::App for VacDownloaderApp {
 
                             ui.separator();
 
-                            if entry.entry.available_locally && ui.button("🗑 Delete").clicked() {
-                                self.delete_confirmation = Some(entry.entry.oaci.clone());
+                            // Actions column
+                            if entry.entry.available_locally {
+                                // Update button (always shown for local entries)
+                                if ui
+                                    .add_enabled(!is_busy, egui::Button::new("🔄 Update"))
+                                    .clicked()
+                                {
+                                    update_oaci = Some(entry.entry.oaci.clone());
+                                }
+
+                                if ui.button("🗑 Delete").clicked() {
+                                    delete_oaci = Some(entry.entry.oaci.clone());
+                                }
                             }
                         });
                         ui.separator();
                     }
+                }
+
+                drop(entries);
+
+                // Execute actions after releasing the lock
+                if let Some(oaci) = update_oaci {
+                    self.update_vac(oaci);
+                }
+                if let Some(oaci) = delete_oaci {
+                    self.delete_confirmation = Some(oaci);
                 }
             });
         });
