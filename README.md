@@ -75,6 +75,7 @@ vac-downloader-gui/
 ├── src/
 │   ├── main.rs       # Application entry point
 │   ├── app.rs        # Main application logic and UI
+│   ├── config.rs     # Configuration file handling
 │   └── models.rs     # Data models
 ├── Cargo.toml        # Dependencies
 ├── vac_cache.db      # SQLite database (created at runtime)
@@ -86,6 +87,8 @@ vac-downloader-gui/
 - **eframe/egui**: Cross-platform GUI framework
 - **vac_downloader**: Core library for VAC management
 - **serde**: Data serialization
+- **toml**: Configuration file parsing
+- **dirs**: Cross-platform directory paths
 
 ## Architecture
 
@@ -97,11 +100,35 @@ The application uses:
 
 ## Configuration
 
-By default, the application uses:
-- Database: `vac_cache.db` in the current directory
-- Downloads: `downloads/` folder in the current directory
+The application uses a TOML configuration file that is automatically created on first run.
 
-These paths are currently hardcoded but can be modified in `src/app.rs`.
+### Configuration File Location
+
+- **macOS**: `~/Library/Application Support/vac-downloader-gui/config.toml`
+- **Linux**: `~/.config/vac-downloader-gui/config.toml`
+- **Windows**: `%APPDATA%\vac-downloader-gui\config.toml`
+
+### Configuration Format
+
+```toml
+database_path = "vac_cache.db"
+download_directory = "downloads"
+```
+
+### Customizing Paths
+
+You can edit the configuration file to change where VAC charts are stored:
+
+1. **Locate the config file** using the paths above
+2. **Edit the file** with your preferred text editor
+3. **Modify the paths**:
+   ```toml
+   database_path = "/path/to/your/database.db"
+   download_directory = "/path/to/your/downloads"
+   ```
+4. **Restart the application** for changes to take effect
+
+**Note**: Paths can be absolute or relative to the current working directory.
 
 ## License
 

@@ -1,0 +1,15 @@
+# VAC Downloader GUI Configuration
+# This file is automatically created on first run
+# You can edit these paths to customize where files are stored
+
+# Path to the SQLite database file
+# Can be absolute or relative to the current working directory
+database_path = "vac_cache.db"
+
+# Directory where VAC PDF files will be downloaded
+# Can be absolute or relative to the current working directory
+download_directory = "downloads"
+
+# Example with absolute paths:
+# database_path = "/Users/yourname/Documents/vac_cache.db"
+# download_directory = "/Users/yourname/Documents/VAC_Downloads"

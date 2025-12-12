@@ -1,3 +1,4 @@
+use crate::config::Config;
 use crate::models::{OperationStatus, VacEntryWithSelection};
 use eframe::egui;
 use std::sync::{Arc, Mutex};
@@ -10,6 +11,8 @@ pub struct VacDownloaderApp {
     status: Arc<Mutex<OperationStatus>>,
     /// Shared VacDownloader instance (benefits from caching)
     downloader: Arc<Mutex<vac_downloader::VacDownloader>>,
+    /// Application configuration
+    config: Config,
     /// Show delete confirmation dialog
     delete_confirmation: Option<String>,
 }
@@ -21,14 +24,21 @@ impl VacDownloaderApp {
         style.spacing.item_spacing = egui::vec2(8.0, 8.0);
         cc.egui_ctx.set_style(style);
 
-        // Initialize VacDownloader once
-        let downloader = vac_downloader::VacDownloader::new("vac_cache.db", "downloads")
-            .expect("Failed to initialize VacDownloader");
+        // Load configuration
+        let config = Config::load();
+        println!("📂 Database: {}", config.database_path);
+        println!("📥 Downloads: {}", config.download_directory);
+
+        // Initialize VacDownloader with config paths
+        let downloader =
+            vac_downloader::VacDownloader::new(&config.database_path, &config.download_directory)
+                .expect("Failed to initialize VacDownloader");
 
         let app = Self {
             vac_entries: Arc::new(Mutex::new(Vec::new())),
             status: Arc::new(Mutex::new(OperationStatus::Idle)),
             downloader: Arc::new(Mutex::new(downloader)),
+            config,
             delete_confirmation: None,
         };
 
