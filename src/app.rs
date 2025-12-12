@@ -406,7 +406,7 @@ impl eframe::App for VacDownloaderApp {
 
                             // OACI Code column - clickable for sorting
                             let oaci_label = if self.sort_column == SortColumn::Oaci {
-                                let arrow = if self.sort_ascending { "▲" } else { "▼" };
+                                let arrow = if self.sort_ascending { "^" } else { "v" };
                                 format!("OACI Code {}", arrow)
                             } else {
                                 "OACI Code".to_string()
@@ -426,7 +426,7 @@ impl eframe::App for VacDownloaderApp {
 
                             // City column - clickable for sorting
                             let city_label = if self.sort_column == SortColumn::City {
-                                let arrow = if self.sort_ascending { "▲" } else { "▼" };
+                                let arrow = if self.sort_ascending { "^" } else { "v" };
                                 format!("City {}", arrow)
                             } else {
                                 "City".to_string()
@@ -456,9 +456,9 @@ impl eframe::App for VacDownloaderApp {
 
                                 // Local status icon
                                 if entry.entry.available_locally {
-                                    ui.label(egui::RichText::new("✓").color(egui::Color32::GREEN));
+                                    ui.label(egui::RichText::new("Y").color(egui::Color32::GREEN));
                                 } else {
-                                    ui.label(egui::RichText::new("✗").color(egui::Color32::RED));
+                                    ui.label(egui::RichText::new("N").color(egui::Color32::RED));
                                 }
 
                                 // Actions column
@@ -466,13 +466,13 @@ impl eframe::App for VacDownloaderApp {
                                     if entry.entry.available_locally {
                                         // Update button (always shown for local entries)
                                         if ui
-                                            .add_enabled(!is_busy, egui::Button::new("🔄 Update"))
+                                            .add_enabled(!is_busy, egui::Button::new("Update"))
                                             .clicked()
                                         {
                                             update_oaci = Some(entry.entry.oaci.clone());
                                         }
 
-                                        if ui.button("🗑 Delete").clicked() {
+                                        if ui.button("Delete").clicked() {
                                             delete_oaci = Some(entry.entry.oaci.clone());
                                         }
                                     }
