@@ -27,6 +27,8 @@ pub struct VacDownloaderApp {
     sort_column: SortColumn,
     /// Sort ascending or descending
     sort_ascending: bool,
+    /// Search query for filtering VAC list
+    search_query: String,
 }
 
 impl VacDownloaderApp {
@@ -55,6 +57,7 @@ impl VacDownloaderApp {
             delete_confirmation: None,
             sort_column: SortColumn::Oaci,
             sort_ascending: true,
+            search_query: String::new(),
         };
 
         // Fetch the VAC list on startup
@@ -380,6 +383,17 @@ impl eframe::App for VacDownloaderApp {
             ui.heading("Available VAC Charts");
             ui.separator();
 
+            // Search box
+            ui.horizontal(|ui| {
+                ui.label("🔍 Search:");
+                ui.text_edit_singleline(&mut self.search_query);
+                if ui.button("✖").clicked() {
+                    self.search_query.clear();
+                }
+            });
+            ui.label("💡 Filter by OACI code or city name");
+            ui.separator();
+
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let mut entries = self.vac_entries.lock().unwrap();
                 let status_guard = self.status.lock().unwrap();
@@ -396,6 +410,39 @@ impl eframe::App for VacDownloaderApp {
                         ui.label("No VAC entries loaded. Click Refresh to fetch the list.");
                     });
                 } else {
+                    // Filter entries based on search query - collect indices
+                    let search_query_lower = self.search_query.to_lowercase();
+                    let filtered_indices: Vec<usize> = entries
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, entry)| {
+                            if search_query_lower.is_empty() {
+                                true
+                            } else {
+                                entry
+                                    .entry
+                                    .oaci
+                                    .to_lowercase()
+                                    .contains(&search_query_lower)
+                                    || entry
+                                        .entry
+                                        .city
+                                        .to_lowercase()
+                                        .contains(&search_query_lower)
+                            }
+                        })
+                        .map(|(idx, _)| idx)
+                        .collect();
+
+                    // Display count of filtered results
+                    if !search_query_lower.is_empty() {
+                        ui.label(format!(
+                            "Showing {} of {} entries",
+                            filtered_indices.len(),
+                            entries.len()
+                        ));
+                    }
+
                     // Use Grid for proper column alignment
                     egui::Grid::new("vac_table")
                         .striped(true)
@@ -448,8 +495,9 @@ impl eframe::App for VacDownloaderApp {
                             ui.label(egui::RichText::new("Actions").strong());
                             ui.end_row();
 
-                            // Table rows
-                            for entry in entries.iter_mut() {
+                            // Table rows - only show filtered entries
+                            for &idx in &filtered_indices {
+                                let entry = &mut entries[idx];
                                 ui.checkbox(&mut entry.selected, "");
                                 ui.label(&entry.entry.oaci);
                                 ui.label(&entry.entry.city);
