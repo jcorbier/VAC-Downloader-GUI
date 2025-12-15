@@ -492,7 +492,16 @@ impl eframe::App for VacDownloaderApp {
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             // Table header with clickable sort columns
-                            ui.label(egui::RichText::new("Select").strong());
+                            // Select All checkbox
+                            let all_filtered_selected =
+                                filtered_indices.iter().all(|&idx| entries[idx].selected);
+                            let mut select_all = all_filtered_selected;
+                            if ui.checkbox(&mut select_all, "").changed() {
+                                // Toggle all filtered entries
+                                for &idx in &filtered_indices {
+                                    entries[idx].selected = select_all;
+                                }
+                            }
 
                             // OACI Code column - clickable for sorting
                             let oaci_label = if self.sort_column == SortColumn::Oaci {
