@@ -21,8 +21,8 @@ pub struct VacDownloaderApp {
     config: Config,
     /// Editable download directory path (for UI input)
     download_dir_input: String,
-    /// Show delete confirmation dialog
-    delete_confirmation: Option<String>,
+    /// Show delete confirmation dialog (list of OACI codes to delete)
+    delete_confirmation: Option<Vec<String>>,
     /// Current sort column
     sort_column: SortColumn,
     /// Sort ascending or descending
@@ -187,6 +187,51 @@ impl VacDownloaderApp {
                         OperationStatus::Error(format!("Delete failed: {}", e));
                 }
             }
+        });
+    }
+
+    fn delete_selected(&self) {
+        let vac_entries = self.vac_entries.clone();
+        let status = self.status.clone();
+        let downloader = self.downloader.clone();
+
+        thread::spawn(move || {
+            let entries = vac_entries.lock().unwrap();
+            let selected_codes: Vec<String> = entries
+                .iter()
+                .filter(|e| e.selected && e.entry.available_locally)
+                .map(|e| e.entry.oaci.clone())
+                .collect();
+            drop(entries);
+
+            if selected_codes.is_empty() {
+                return;
+            }
+
+            let total = selected_codes.len();
+            let downloader = downloader.lock().unwrap();
+
+            for (idx, oaci_code) in selected_codes.iter().enumerate() {
+                *status.lock().unwrap() =
+                    OperationStatus::Deleting(format!("{} ({}/{})", oaci_code, idx + 1, total));
+
+                match downloader.delete(oaci_code) {
+                    Ok(_) => {
+                        // Update the local status in the list
+                        let mut entries = vac_entries.lock().unwrap();
+                        if let Some(entry) = entries.iter_mut().find(|e| e.entry.oaci == *oaci_code)
+                        {
+                            entry.entry.available_locally = false;
+                            entry.selected = false; // Deselect after deletion
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to delete {}: {}", oaci_code, e);
+                    }
+                }
+            }
+
+            *status.lock().unwrap() = OperationStatus::Idle;
         });
     }
 
@@ -378,6 +423,31 @@ impl eframe::App for VacDownloaderApp {
                 {
                     self.download_selected();
                 }
+
+                // Check if any selected entries are available locally
+                let entries = self.vac_entries.lock().unwrap();
+                let has_local_selection = entries
+                    .iter()
+                    .any(|e| e.selected && e.entry.available_locally);
+                drop(entries);
+
+                if ui
+                    .add_enabled(
+                        !is_busy && has_local_selection,
+                        egui::Button::new("🗑 Delete Selected"),
+                    )
+                    .clicked()
+                {
+                    // Collect selected OACI codes for confirmation
+                    let entries = self.vac_entries.lock().unwrap();
+                    let selected_codes: Vec<String> = entries
+                        .iter()
+                        .filter(|e| e.selected && e.entry.available_locally)
+                        .map(|e| e.entry.oaci.clone())
+                        .collect();
+                    drop(entries);
+                    self.delete_confirmation = Some(selected_codes);
+                }
             });
         });
 
@@ -443,7 +513,7 @@ impl eframe::App for VacDownloaderApp {
 
                 // Collect actions to perform after releasing the lock
                 let mut update_oaci: Option<String> = None;
-                let mut delete_oaci: Option<String> = None;
+                let mut delete_oaci: Option<Vec<String>> = None;
                 let mut open_pdf_oaci: Option<String> = None;
                 let mut need_sort = false;
                 let mut oaci_codes_to_check: Vec<String> = Vec::new();
@@ -607,7 +677,7 @@ impl eframe::App for VacDownloaderApp {
                                         }
 
                                         if ui.button("Delete").clicked() {
-                                            delete_oaci = Some(entry.entry.oaci.clone());
+                                            delete_oaci = Some(vec![entry.entry.oaci.clone()]);
                                         }
                                     }
                                 });
@@ -635,22 +705,37 @@ impl eframe::App for VacDownloaderApp {
                 if let Some(oaci) = open_pdf_oaci {
                     self.open_pdf(&oaci);
                 }
-                if let Some(oaci) = delete_oaci {
-                    self.delete_confirmation = Some(oaci);
+                if let Some(oaci_codes) = delete_oaci {
+                    self.delete_confirmation = Some(oaci_codes);
                 }
             });
         });
 
         // Delete confirmation dialog
-        if let Some(oaci_code) = &self.delete_confirmation.clone() {
+        if let Some(oaci_codes) = &self.delete_confirmation.clone() {
             egui::Window::new("Confirm Delete")
                 .collapsible(false)
                 .resizable(false)
                 .show(ctx, |ui| {
-                    ui.label(format!("Are you sure you want to delete {}?", oaci_code));
+                    if oaci_codes.len() == 1 {
+                        ui.label(format!(
+                            "Are you sure you want to delete {}?",
+                            oaci_codes[0]
+                        ));
+                    } else {
+                        ui.label(format!(
+                            "Are you sure you want to delete {} VAC entries?",
+                            oaci_codes.len()
+                        ));
+                        ui.label(format!("Entries: {}", oaci_codes.join(", ")));
+                    }
                     ui.horizontal(|ui| {
                         if ui.button("Yes").clicked() {
-                            self.delete_vac(oaci_code.clone());
+                            if oaci_codes.len() == 1 {
+                                self.delete_vac(oaci_codes[0].clone());
+                            } else {
+                                self.delete_selected();
+                            }
                             self.delete_confirmation = None;
                         }
                         if ui.button("No").clicked() {
