@@ -319,6 +319,20 @@ impl VacDownloaderApp {
             }
         }
     }
+
+    fn open_pdf(&self, oaci_code: &str) {
+        let downloader = self.downloader.lock().unwrap();
+        match downloader.get_pdf_path(oaci_code) {
+            Ok(path) => {
+                if let Err(e) = open::that(&path) {
+                    eprintln!("Failed to open PDF for {}: {}", oaci_code, e);
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to get PDF path for {}: {}", oaci_code, e);
+            }
+        }
+    }
 }
 
 impl eframe::App for VacDownloaderApp {
@@ -430,6 +444,7 @@ impl eframe::App for VacDownloaderApp {
                 // Collect actions to perform after releasing the lock
                 let mut update_oaci: Option<String> = None;
                 let mut delete_oaci: Option<String> = None;
+                let mut open_pdf_oaci: Option<String> = None;
                 let mut need_sort = false;
                 let mut oaci_codes_to_check: Vec<String> = Vec::new();
 
@@ -527,8 +542,24 @@ impl eframe::App for VacDownloaderApp {
                             for &idx in &filtered_indices {
                                 let entry = &mut entries[idx];
                                 ui.checkbox(&mut entry.selected, "");
-                                ui.label(&entry.entry.oaci);
-                                ui.label(&entry.entry.city);
+
+                                // OACI code - clickable if available locally
+                                if entry.entry.available_locally {
+                                    if ui.link(&entry.entry.oaci).clicked() {
+                                        open_pdf_oaci = Some(entry.entry.oaci.clone());
+                                    }
+                                } else {
+                                    ui.label(&entry.entry.oaci);
+                                }
+
+                                // City name - clickable if available locally
+                                if entry.entry.available_locally {
+                                    if ui.link(&entry.entry.city).clicked() {
+                                        open_pdf_oaci = Some(entry.entry.oaci.clone());
+                                    }
+                                } else {
+                                    ui.label(&entry.entry.city);
+                                }
 
                                 // Local status icon
                                 if entry.entry.available_locally {
@@ -591,6 +622,9 @@ impl eframe::App for VacDownloaderApp {
 
                 if let Some(oaci) = update_oaci {
                     self.update_vac(oaci);
+                }
+                if let Some(oaci) = open_pdf_oaci {
+                    self.open_pdf(&oaci);
                 }
                 if let Some(oaci) = delete_oaci {
                     self.delete_confirmation = Some(oaci);
