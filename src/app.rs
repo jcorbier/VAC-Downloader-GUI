@@ -10,6 +10,21 @@ enum SortColumn {
     City,
 }
 
+/// Icon storage for the application
+struct Icons {
+    refresh: egui::TextureHandle,
+    download: egui::TextureHandle,
+    delete: egui::TextureHandle,
+    save: egui::TextureHandle,
+    folder: egui::TextureHandle,
+    info: egui::TextureHandle,
+    search: egui::TextureHandle,
+    close: egui::TextureHandle,
+    status_yes: egui::TextureHandle,
+    status_no: egui::TextureHandle,
+    status_update: egui::TextureHandle,
+}
+
 pub struct VacDownloaderApp {
     /// List of VAC entries
     vac_entries: Arc<Mutex<Vec<VacEntryWithSelection>>>,
@@ -31,6 +46,8 @@ pub struct VacDownloaderApp {
     search_query: String,
     /// Cache of needs_update status for each OACI code
     needs_update_cache: Arc<Mutex<std::collections::HashMap<String, bool>>>,
+    /// Application icons
+    icons: Icons,
 }
 
 impl VacDownloaderApp {
@@ -42,8 +59,11 @@ impl VacDownloaderApp {
 
         // Load configuration
         let config = Config::load();
-        println!("📂 Database: {}", config.database_path);
-        println!("📥 Downloads: {}", config.download_directory);
+        println!("Database: {}", config.database_path);
+        println!("Downloads: {}", config.download_directory);
+
+        // Load icons
+        let icons = Self::load_icons(&cc.egui_ctx);
 
         // Initialize VacDownloader with config paths
         let downloader =
@@ -61,12 +81,59 @@ impl VacDownloaderApp {
             sort_ascending: true,
             search_query: String::new(),
             needs_update_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            icons,
         };
 
         // Fetch the VAC list on startup
         app.fetch_vac_list();
 
         app
+    }
+
+    fn load_icons(ctx: &egui::Context) -> Icons {
+        fn load_icon(ctx: &egui::Context, name: &str, bytes: &[u8]) -> egui::TextureHandle {
+            let image = image::load_from_memory(bytes)
+                .expect(&format!("Failed to load {} icon", name))
+                .to_rgba8();
+            let size = [image.width() as usize, image.height() as usize];
+            let pixels = image.as_flat_samples();
+            let color_image = egui::ColorImage::from_rgba_unmultiplied(size, pixels.as_slice());
+            ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR)
+        }
+
+        Icons {
+            refresh: load_icon(
+                ctx,
+                "refresh",
+                include_bytes!("../assets/icons/refresh.png"),
+            ),
+            download: load_icon(
+                ctx,
+                "download",
+                include_bytes!("../assets/icons/download.png"),
+            ),
+            delete: load_icon(ctx, "delete", include_bytes!("../assets/icons/delete.png")),
+            save: load_icon(ctx, "save", include_bytes!("../assets/icons/save.png")),
+            folder: load_icon(ctx, "folder", include_bytes!("../assets/icons/folder.png")),
+            info: load_icon(ctx, "info", include_bytes!("../assets/icons/info.png")),
+            search: load_icon(ctx, "search", include_bytes!("../assets/icons/search.png")),
+            close: load_icon(ctx, "close", include_bytes!("../assets/icons/close.png")),
+            status_yes: load_icon(
+                ctx,
+                "status_yes",
+                include_bytes!("../assets/icons/status_yes.png"),
+            ),
+            status_no: load_icon(
+                ctx,
+                "status_no",
+                include_bytes!("../assets/icons/status_no.png"),
+            ),
+            status_update: load_icon(
+                ctx,
+                "status_update",
+                include_bytes!("../assets/icons/status_update.png"),
+            ),
+        }
     }
 
     fn fetch_vac_list(&self) {
@@ -327,13 +394,13 @@ impl VacDownloaderApp {
         // Save to file
         match self.config.save() {
             Ok(_) => {
-                println!("✅ Configuration saved!");
+                println!("Configuration saved!");
 
                 // Delete the old database file to reset the cache
                 if std::path::Path::new(&self.config.database_path).exists() {
                     match std::fs::remove_file(&self.config.database_path) {
-                        Ok(_) => println!("🗑️  Deleted old database cache"),
-                        Err(e) => println!("⚠️  Warning: Could not delete old database: {}", e),
+                        Ok(_) => println!("Deleted old database cache"),
+                        Err(e) => println!("Warning: Could not delete old database: {}", e),
                     }
                 }
 
@@ -344,8 +411,8 @@ impl VacDownloaderApp {
                 ) {
                     Ok(new_downloader) => {
                         *self.downloader.lock().unwrap() = new_downloader;
-                        println!("🔄 VacDownloader reinitialized with new download location");
-                        println!("🗄️  Fresh database created");
+                        println!("VacDownloader reinitialized with new download location");
+                        println!("Fresh database created");
 
                         // Refresh the VAC list to update local availability with new path
                         self.fetch_vac_list();
@@ -397,14 +464,28 @@ impl eframe::App for VacDownloaderApp {
                 drop(status_guard);
 
                 if ui
-                    .add_enabled(!is_busy, egui::Button::new("🔄 Refresh"))
+                    .add_enabled(
+                        !is_busy,
+                        egui::Button::image_and_text(
+                            egui::Image::new(&self.icons.refresh)
+                                .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+                            "Refresh",
+                        ),
+                    )
                     .clicked()
                 {
                     self.fetch_vac_list();
                 }
 
                 if ui
-                    .add_enabled(!is_busy, egui::Button::new("⬇ Download All"))
+                    .add_enabled(
+                        !is_busy,
+                        egui::Button::image_and_text(
+                            egui::Image::new(&self.icons.download)
+                                .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                            "Download All",
+                        ),
+                    )
                     .clicked()
                 {
                     self.download_all();
@@ -417,7 +498,11 @@ impl eframe::App for VacDownloaderApp {
                 if ui
                     .add_enabled(
                         !is_busy && has_selection,
-                        egui::Button::new("⬇ Download Selected"),
+                        egui::Button::image_and_text(
+                            egui::Image::new(&self.icons.download)
+                                .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                            "Download Selected",
+                        ),
                     )
                     .clicked()
                 {
@@ -434,7 +519,11 @@ impl eframe::App for VacDownloaderApp {
                 if ui
                     .add_enabled(
                         !is_busy && has_local_selection,
-                        egui::Button::new("🗑 Delete Selected"),
+                        egui::Button::image_and_text(
+                            egui::Image::new(&self.icons.delete)
+                                .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                            "Delete Selected",
+                        ),
                     )
                     .clicked()
                 {
@@ -472,13 +561,27 @@ impl eframe::App for VacDownloaderApp {
                 drop(status_guard);
 
                 if ui
-                    .add_enabled(!is_busy, egui::Button::new("💾 Save"))
+                    .add_enabled(
+                        !is_busy,
+                        egui::Button::image_and_text(
+                            egui::Image::new(&self.icons.save)
+                                .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                            "Save",
+                        ),
+                    )
                     .clicked()
                 {
                     self.save_config();
                 }
 
-                if ui.button("📁 Browse").clicked() {
+                if ui
+                    .add(egui::Button::image_and_text(
+                        egui::Image::new(&self.icons.folder)
+                            .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                        "Browse",
+                    ))
+                    .clicked()
+                {
                     // Open directory picker dialog
                     if let Some(path) = rfd::FileDialog::new()
                         .set_directory(&self.download_dir_input)
@@ -488,7 +591,12 @@ impl eframe::App for VacDownloaderApp {
                     }
                 }
             });
-            ui.label("💡 Warning: changing location will reset the database");
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::Image::new(&self.icons.info).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                );
+                ui.label("Warning: changing location will reset the database");
+            });
             ui.separator();
 
             ui.heading("Available VAC Charts");
@@ -496,13 +604,28 @@ impl eframe::App for VacDownloaderApp {
 
             // Search box
             ui.horizontal(|ui| {
-                ui.label("🔍 Search:");
+                ui.add(
+                    egui::Image::new(&self.icons.search).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                );
+                ui.label("Search:");
                 ui.text_edit_singleline(&mut self.search_query);
-                if ui.button("✖").clicked() {
+                if ui
+                    .add(egui::Button::image(
+                        egui::Image::new(&self.icons.close)
+                            .fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                    ))
+                    .on_hover_text("Clear")
+                    .clicked()
+                {
                     self.search_query.clear();
                 }
             });
-            ui.label("💡 Filter by OACI code or city name");
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::Image::new(&self.icons.info).fit_to_exact_size(egui::vec2(16.0, 16.0)),
+                );
+                ui.label("Filter by OACI code or city name");
+            });
             ui.separator();
 
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -660,17 +783,24 @@ impl eframe::App for VacDownloaderApp {
                                 if entry.entry.available_locally {
                                     // Show appropriate icon based on update status
                                     if needs_update.unwrap_or(false) {
-                                        ui.label(
-                                            egui::RichText::new("U")
-                                                .color(egui::Color32::from_rgb(255, 165, 0)),
-                                        ); // Orange/yellow warning
+                                        ui.add(
+                                            egui::Image::new(&self.icons.status_update)
+                                                .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+                                        )
+                                        .on_hover_text("Update available");
                                     } else {
-                                        ui.label(
-                                            egui::RichText::new("Y").color(egui::Color32::GREEN),
-                                        );
+                                        ui.add(
+                                            egui::Image::new(&self.icons.status_yes)
+                                                .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+                                        )
+                                        .on_hover_text("Up to date");
                                     }
                                 } else {
-                                    ui.label(egui::RichText::new("N").color(egui::Color32::RED));
+                                    ui.add(
+                                        egui::Image::new(&self.icons.status_no)
+                                            .fit_to_exact_size(egui::vec2(20.0, 20.0)),
+                                    )
+                                    .on_hover_text("Not downloaded");
                                 }
 
                                 // Actions column
