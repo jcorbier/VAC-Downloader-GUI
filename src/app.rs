@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::models::{OperationStatus, VacEntryWithSelection};
 use eframe::egui;
+use egui_extras::{Column, TableBuilder};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -628,231 +629,283 @@ impl eframe::App for VacDownloaderApp {
             });
             ui.separator();
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                let mut entries = self.vac_entries.lock().unwrap();
-                let status_guard = self.status.lock().unwrap();
-                let is_busy = status_guard.is_busy();
-                drop(status_guard);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    let mut entries = self.vac_entries.lock().unwrap();
+                    let status_guard = self.status.lock().unwrap();
+                    let is_busy = status_guard.is_busy();
+                    drop(status_guard);
 
-                // Collect actions to perform after releasing the lock
-                let mut update_oaci: Option<String> = None;
-                let mut delete_oaci: Option<Vec<String>> = None;
-                let mut open_pdf_oaci: Option<String> = None;
-                let mut need_sort = false;
-                let mut oaci_codes_to_check: Vec<String> = Vec::new();
+                    // Collect actions to perform after releasing the lock
+                    let mut update_oaci: Option<String> = None;
+                    let mut delete_oaci: Option<Vec<String>> = None;
+                    let mut open_pdf_oaci: Option<String> = None;
+                    let mut need_sort = false;
+                    let mut oaci_codes_to_check: Vec<String> = Vec::new();
 
-                if entries.is_empty() {
-                    ui.centered_and_justified(|ui| {
-                        ui.label("No VAC entries loaded. Click Refresh to fetch the list.");
-                    });
-                } else {
-                    // Filter entries based on search query - collect indices
-                    let search_query_lower = self.search_query.to_lowercase();
-                    let filtered_indices: Vec<usize> = entries
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, entry)| {
-                            if search_query_lower.is_empty() {
-                                true
-                            } else {
-                                entry
-                                    .entry
-                                    .oaci
-                                    .to_lowercase()
-                                    .contains(&search_query_lower)
-                                    || entry
+                    if entries.is_empty() {
+                        ui.centered_and_justified(|ui| {
+                            ui.label("No VAC entries loaded. Click Refresh to fetch the list.");
+                        });
+                    } else {
+                        // Filter entries based on search query - collect indices
+                        let search_query_lower = self.search_query.to_lowercase();
+                        let filtered_indices: Vec<usize> = entries
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, entry)| {
+                                if search_query_lower.is_empty() {
+                                    true
+                                } else {
+                                    entry
                                         .entry
-                                        .city
+                                        .oaci
                                         .to_lowercase()
                                         .contains(&search_query_lower)
-                            }
-                        })
-                        .map(|(idx, _)| idx)
-                        .collect();
-
-                    // Display count of filtered results
-                    if !search_query_lower.is_empty() {
-                        ui.label(format!(
-                            "Showing {} of {} entries",
-                            filtered_indices.len(),
-                            entries.len()
-                        ));
-                    }
-
-                    // Use Grid for proper column alignment
-                    egui::Grid::new("vac_table")
-                        .striped(true)
-                        .spacing([10.0, 4.0])
-                        .show(ui, |ui| {
-                            // Table header with clickable sort columns
-                            // Select All checkbox
-                            let all_filtered_selected =
-                                filtered_indices.iter().all(|&idx| entries[idx].selected);
-                            let mut select_all = all_filtered_selected;
-                            if ui.checkbox(&mut select_all, "").changed() {
-                                // Toggle all filtered entries
-                                for &idx in &filtered_indices {
-                                    entries[idx].selected = select_all;
+                                        || entry
+                                            .entry
+                                            .city
+                                            .to_lowercase()
+                                            .contains(&search_query_lower)
                                 }
-                            }
+                            })
+                            .map(|(idx, _)| idx)
+                            .collect();
 
-                            // OACI Code column - clickable for sorting
-                            let oaci_label = if self.sort_column == SortColumn::Oaci {
-                                let arrow = if self.sort_ascending { "^" } else { "v" };
-                                format!("OACI Code {}", arrow)
-                            } else {
-                                "OACI Code".to_string()
-                            };
-                            if ui
-                                .button(egui::RichText::new(oaci_label).strong())
-                                .clicked()
-                            {
-                                if self.sort_column == SortColumn::Oaci {
-                                    self.sort_ascending = !self.sort_ascending;
-                                } else {
-                                    self.sort_column = SortColumn::Oaci;
-                                    self.sort_ascending = true;
-                                }
-                                need_sort = true;
-                            }
+                        // Display count of filtered results
+                        if !search_query_lower.is_empty() {
+                            ui.label(format!(
+                                "Showing {} of {} entries",
+                                filtered_indices.len(),
+                                entries.len()
+                            ));
+                        }
 
-                            // City column - clickable for sorting
-                            let city_label = if self.sort_column == SortColumn::City {
-                                let arrow = if self.sort_ascending { "^" } else { "v" };
-                                format!("City {}", arrow)
-                            } else {
-                                "City".to_string()
-                            };
-                            if ui
-                                .button(egui::RichText::new(city_label).strong())
-                                .clicked()
-                            {
-                                if self.sort_column == SortColumn::City {
-                                    self.sort_ascending = !self.sort_ascending;
-                                } else {
-                                    self.sort_column = SortColumn::City;
-                                    self.sort_ascending = true;
-                                }
-                                need_sort = true;
-                            }
-
-                            ui.label(egui::RichText::new("Local").strong());
-                            ui.label(egui::RichText::new("Actions").strong());
-                            ui.end_row();
-
-                            // Table rows - only show filtered entries
-                            for &idx in &filtered_indices {
-                                let entry = &mut entries[idx];
-                                ui.checkbox(&mut entry.selected, "");
-
-                                // OACI code - clickable if available locally
-                                if entry.entry.available_locally {
-                                    if ui.link(&entry.entry.oaci).clicked() {
-                                        open_pdf_oaci = Some(entry.entry.oaci.clone());
-                                    }
-                                } else {
-                                    ui.label(&entry.entry.oaci);
-                                }
-
-                                // City name - clickable if available locally
-                                if entry.entry.available_locally {
-                                    if ui.link(&entry.entry.city).clicked() {
-                                        open_pdf_oaci = Some(entry.entry.oaci.clone());
-                                    }
-                                } else {
-                                    ui.label(&entry.entry.city);
-                                }
-
-                                // Check update status once for this entry (if available locally)
-                                let needs_update = if entry.entry.available_locally {
-                                    let needs_update_cache =
-                                        self.needs_update_cache.lock().unwrap();
-                                    let status = needs_update_cache.get(&entry.entry.oaci).copied();
-                                    drop(needs_update_cache);
-
-                                    // If we don't have the status yet, mark it for checking
-                                    if status.is_none() {
-                                        oaci_codes_to_check.push(entry.entry.oaci.clone());
-                                    }
-                                    status
-                                } else {
-                                    None
-                                };
-
-                                // Local status icon
-                                if entry.entry.available_locally {
-                                    // Show appropriate icon based on update status
-                                    if needs_update.unwrap_or(false) {
-                                        ui.add(
-                                            egui::Image::new(&self.icons.status_update)
-                                                .fit_to_exact_size(egui::vec2(20.0, 20.0)),
-                                        )
-                                        .on_hover_text("Update available");
-                                    } else {
-                                        ui.add(
-                                            egui::Image::new(&self.icons.status_yes)
-                                                .fit_to_exact_size(egui::vec2(20.0, 20.0)),
-                                        )
-                                        .on_hover_text("Up to date");
-                                    }
-                                } else {
-                                    ui.add(
-                                        egui::Image::new(&self.icons.status_no)
-                                            .fit_to_exact_size(egui::vec2(20.0, 20.0)),
-                                    )
-                                    .on_hover_text("Not downloaded");
-                                }
-
-                                // Actions column
-                                ui.horizontal(|ui| {
-                                    if entry.entry.available_locally {
-                                        // Enable Update button only if we know it needs an update
-                                        let update_enabled =
-                                            !is_busy && needs_update.unwrap_or(false);
-
-                                        if ui
-                                            .add_enabled(
-                                                update_enabled,
-                                                egui::Button::new("Update"),
-                                            )
-                                            .clicked()
-                                        {
-                                            update_oaci = Some(entry.entry.oaci.clone());
-                                        }
-
-                                        if ui.button("Delete").clicked() {
-                                            delete_oaci = Some(vec![entry.entry.oaci.clone()]);
+                        // Use TableBuilder for proper column alignment with fixed column widths
+                        TableBuilder::new(ui)
+                            .striped(true)
+                            .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                            .column(Column::exact(30.0)) // Checkbox
+                            .column(Column::exact(80.0)) // OACI Code
+                            .column(Column::remainder()) // City - fills remaining space
+                            .column(Column::exact(60.0)) // Local status
+                            .column(Column::exact(150.0)) // Actions
+                            .header(20.0, |mut header| {
+                                // Checkbox column header
+                                header.col(|ui| {
+                                    let all_filtered_selected =
+                                        filtered_indices.iter().all(|&idx| entries[idx].selected);
+                                    let mut select_all = all_filtered_selected;
+                                    if ui.checkbox(&mut select_all, "").changed() {
+                                        // Toggle all filtered entries
+                                        for &idx in &filtered_indices {
+                                            entries[idx].selected = select_all;
                                         }
                                     }
                                 });
 
-                                ui.end_row();
-                            }
-                        });
-                }
+                                // OACI Code column header
+                                header.col(|ui| {
+                                    let oaci_label = if self.sort_column == SortColumn::Oaci {
+                                        let arrow = if self.sort_ascending { "^" } else { "v" };
+                                        format!("OACI Code {}", arrow)
+                                    } else {
+                                        "OACI Code".to_string()
+                                    };
+                                    if ui
+                                        .button(egui::RichText::new(oaci_label).strong())
+                                        .clicked()
+                                    {
+                                        if self.sort_column == SortColumn::Oaci {
+                                            self.sort_ascending = !self.sort_ascending;
+                                        } else {
+                                            self.sort_column = SortColumn::Oaci;
+                                            self.sort_ascending = true;
+                                        }
+                                        need_sort = true;
+                                    }
+                                });
 
-                drop(entries);
+                                // City column header
+                                header.col(|ui| {
+                                    let city_label = if self.sort_column == SortColumn::City {
+                                        let arrow = if self.sort_ascending { "^" } else { "v" };
+                                        format!("City {}", arrow)
+                                    } else {
+                                        "City".to_string()
+                                    };
+                                    if ui
+                                        .button(egui::RichText::new(city_label).strong())
+                                        .clicked()
+                                    {
+                                        if self.sort_column == SortColumn::City {
+                                            self.sort_ascending = !self.sort_ascending;
+                                        } else {
+                                            self.sort_column = SortColumn::City;
+                                            self.sort_ascending = true;
+                                        }
+                                        need_sort = true;
+                                    }
+                                });
 
-                // Execute actions after releasing the lock
-                if need_sort {
-                    self.sort_entries();
-                }
+                                // Local status column header
+                                header.col(|ui| {
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            ui.label(egui::RichText::new("Local").strong());
+                                        },
+                                    );
+                                });
 
-                // Check update status for entries that need it
-                for oaci in oaci_codes_to_check {
-                    self.check_needs_update(oaci);
-                }
+                                // Actions column header
+                                header.col(|ui| {
+                                    ui.label(egui::RichText::new("Actions").strong());
+                                });
+                            })
+                            .body(|mut body| {
+                                // Table rows - only show filtered entries
+                                for &idx in &filtered_indices {
+                                    let entry = &mut entries[idx];
 
-                if let Some(oaci) = update_oaci {
-                    self.update_vac(oaci);
-                }
-                if let Some(oaci) = open_pdf_oaci {
-                    self.open_pdf(&oaci);
-                }
-                if let Some(oaci_codes) = delete_oaci {
-                    self.delete_confirmation = Some(oaci_codes);
-                }
-            });
+                                    body.row(20.0, |mut row| {
+                                        // Checkbox column
+                                        row.col(|ui| {
+                                            ui.checkbox(&mut entry.selected, "");
+                                        });
+
+                                        // OACI code column - clickable if available locally
+                                        row.col(|ui| {
+                                            if entry.entry.available_locally {
+                                                if ui.link(&entry.entry.oaci).clicked() {
+                                                    open_pdf_oaci = Some(entry.entry.oaci.clone());
+                                                }
+                                            } else {
+                                                ui.label(&entry.entry.oaci);
+                                            }
+                                        });
+
+                                        // City name column - clickable if available locally
+                                        row.col(|ui| {
+                                            if entry.entry.available_locally {
+                                                if ui.link(&entry.entry.city).clicked() {
+                                                    open_pdf_oaci = Some(entry.entry.oaci.clone());
+                                                }
+                                            } else {
+                                                ui.label(&entry.entry.city);
+                                            }
+                                        });
+
+                                        // Check update status once for this entry (if available locally)
+                                        let needs_update = if entry.entry.available_locally {
+                                            let needs_update_cache =
+                                                self.needs_update_cache.lock().unwrap();
+                                            let status =
+                                                needs_update_cache.get(&entry.entry.oaci).copied();
+                                            drop(needs_update_cache);
+
+                                            // If we don't have the status yet, mark it for checking
+                                            if status.is_none() {
+                                                oaci_codes_to_check.push(entry.entry.oaci.clone());
+                                            }
+                                            status
+                                        } else {
+                                            None
+                                        };
+
+                                        // Local status icon column
+                                        row.col(|ui| {
+                                            ui.with_layout(
+                                                egui::Layout::right_to_left(egui::Align::Center),
+                                                |ui| {
+                                                    if entry.entry.available_locally {
+                                                        // Show appropriate icon based on update status
+                                                        if needs_update.unwrap_or(false) {
+                                                            ui.add(
+                                                                egui::Image::new(
+                                                                    &self.icons.status_update,
+                                                                )
+                                                                .fit_to_exact_size(egui::vec2(
+                                                                    20.0, 20.0,
+                                                                )),
+                                                            )
+                                                            .on_hover_text("Update available");
+                                                        } else {
+                                                            ui.add(
+                                                                egui::Image::new(
+                                                                    &self.icons.status_yes,
+                                                                )
+                                                                .fit_to_exact_size(egui::vec2(
+                                                                    20.0, 20.0,
+                                                                )),
+                                                            )
+                                                            .on_hover_text("Up to date");
+                                                        }
+                                                    } else {
+                                                        ui.add(
+                                                            egui::Image::new(&self.icons.status_no)
+                                                                .fit_to_exact_size(egui::vec2(
+                                                                    20.0, 20.0,
+                                                                )),
+                                                        )
+                                                        .on_hover_text("Not downloaded");
+                                                    }
+                                                },
+                                            );
+                                        });
+
+                                        // Actions column
+                                        row.col(|ui| {
+                                            if entry.entry.available_locally {
+                                                // Enable Update button only if we know it needs an update
+                                                let update_enabled =
+                                                    !is_busy && needs_update.unwrap_or(false);
+
+                                                if ui
+                                                    .add_enabled(
+                                                        update_enabled,
+                                                        egui::Button::new("Update"),
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    update_oaci = Some(entry.entry.oaci.clone());
+                                                }
+
+                                                if ui.button("Delete").clicked() {
+                                                    delete_oaci =
+                                                        Some(vec![entry.entry.oaci.clone()]);
+                                                }
+                                            }
+                                        });
+                                    });
+                                }
+                            });
+                    }
+
+                    drop(entries);
+
+                    // Execute actions after releasing the lock
+                    if need_sort {
+                        self.sort_entries();
+                    }
+
+                    // Check update status for entries that need it
+                    for oaci in oaci_codes_to_check {
+                        self.check_needs_update(oaci);
+                    }
+
+                    if let Some(oaci) = update_oaci {
+                        self.update_vac(oaci);
+                    }
+                    if let Some(oaci) = open_pdf_oaci {
+                        self.open_pdf(&oaci);
+                    }
+                    if let Some(oaci_codes) = delete_oaci {
+                        self.delete_confirmation = Some(oaci_codes);
+                    }
+                });
         });
 
         // Delete confirmation dialog
