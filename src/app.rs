@@ -640,9 +640,35 @@ impl eframe::App for VacDownloaderApp {
                                     ui.label(&entry.entry.city);
                                 }
 
+                                // Check update status once for this entry (if available locally)
+                                let needs_update = if entry.entry.available_locally {
+                                    let needs_update_cache =
+                                        self.needs_update_cache.lock().unwrap();
+                                    let status = needs_update_cache.get(&entry.entry.oaci).copied();
+                                    drop(needs_update_cache);
+
+                                    // If we don't have the status yet, mark it for checking
+                                    if status.is_none() {
+                                        oaci_codes_to_check.push(entry.entry.oaci.clone());
+                                    }
+                                    status
+                                } else {
+                                    None
+                                };
+
                                 // Local status icon
                                 if entry.entry.available_locally {
-                                    ui.label(egui::RichText::new("Y").color(egui::Color32::GREEN));
+                                    // Show appropriate icon based on update status
+                                    if needs_update.unwrap_or(false) {
+                                        ui.label(
+                                            egui::RichText::new("U")
+                                                .color(egui::Color32::from_rgb(255, 165, 0)),
+                                        ); // Orange/yellow warning
+                                    } else {
+                                        ui.label(
+                                            egui::RichText::new("Y").color(egui::Color32::GREEN),
+                                        );
+                                    }
                                 } else {
                                     ui.label(egui::RichText::new("N").color(egui::Color32::RED));
                                 }
@@ -650,18 +676,6 @@ impl eframe::App for VacDownloaderApp {
                                 // Actions column
                                 ui.horizontal(|ui| {
                                     if entry.entry.available_locally {
-                                        // Check if we need to fetch update status
-                                        let needs_update_cache =
-                                            self.needs_update_cache.lock().unwrap();
-                                        let needs_update =
-                                            needs_update_cache.get(&entry.entry.oaci).copied();
-                                        drop(needs_update_cache);
-
-                                        // If we don't have the status yet, mark it for checking
-                                        if needs_update.is_none() {
-                                            oaci_codes_to_check.push(entry.entry.oaci.clone());
-                                        }
-
                                         // Enable Update button only if we know it needs an update
                                         let update_enabled =
                                             !is_busy && needs_update.unwrap_or(false);
