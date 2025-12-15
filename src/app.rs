@@ -871,7 +871,9 @@ impl eframe::App for VacDownloaderApp {
                             "Are you sure you want to delete {} VAC entries?",
                             oaci_codes.len()
                         ));
-                        ui.label(format!("Entries: {}", oaci_codes.join(", ")));
+                        if oaci_codes.len() <= 10 {
+                            ui.label(format!("Entries: {}", oaci_codes.join(", ")));
+                        }
                     }
                     ui.horizontal(|ui| {
                         if ui.button("Yes").clicked() {
