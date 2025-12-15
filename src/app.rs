@@ -141,6 +141,8 @@ impl VacDownloaderApp {
         let vac_entries = self.vac_entries.clone();
         let status = self.status.clone();
         let downloader = self.downloader.clone();
+        let sort_column = self.sort_column;
+        let sort_ascending = self.sort_ascending;
 
         *status.lock().unwrap() = OperationStatus::FetchingList;
 
@@ -148,8 +150,12 @@ impl VacDownloaderApp {
             let downloader = downloader.lock().unwrap();
             match downloader.list_vacs(None) {
                 Ok(vacs) => {
-                    let entries: Vec<VacEntryWithSelection> =
+                    let mut entries: Vec<VacEntryWithSelection> =
                         vacs.into_iter().map(VacEntryWithSelection::new).collect();
+
+                    // Apply default sorting
+                    Self::sort_entries_static(&mut entries, sort_column, sort_ascending);
+
                     *vac_entries.lock().unwrap() = entries;
                     *status.lock().unwrap() = OperationStatus::Idle;
                 }
@@ -165,6 +171,8 @@ impl VacDownloaderApp {
         let status = self.status.clone();
         let vac_entries = self.vac_entries.clone();
         let downloader = self.downloader.clone();
+        let sort_column = self.sort_column;
+        let sort_ascending = self.sort_ascending;
 
         thread::spawn(move || {
             let entries = vac_entries.lock().unwrap();
@@ -178,8 +186,12 @@ impl VacDownloaderApp {
                 Ok(_) => {
                     // Refresh the list to update local status
                     if let Ok(vacs) = downloader.list_vacs(None) {
-                        let entries: Vec<VacEntryWithSelection> =
+                        let mut entries: Vec<VacEntryWithSelection> =
                             vacs.into_iter().map(VacEntryWithSelection::new).collect();
+
+                        // Apply current sorting
+                        Self::sort_entries_static(&mut entries, sort_column, sort_ascending);
+
                         *vac_entries.lock().unwrap() = entries;
                     }
                     *status.lock().unwrap() = OperationStatus::Idle;
@@ -196,6 +208,8 @@ impl VacDownloaderApp {
         let vac_entries = self.vac_entries.clone();
         let status = self.status.clone();
         let downloader = self.downloader.clone();
+        let sort_column = self.sort_column;
+        let sort_ascending = self.sort_ascending;
 
         thread::spawn(move || {
             let entries = vac_entries.lock().unwrap();
@@ -218,8 +232,12 @@ impl VacDownloaderApp {
                 Ok(_) => {
                     // Refresh the list to update local status
                     if let Ok(vacs) = downloader.list_vacs(None) {
-                        let new_entries: Vec<VacEntryWithSelection> =
+                        let mut new_entries: Vec<VacEntryWithSelection> =
                             vacs.into_iter().map(VacEntryWithSelection::new).collect();
+
+                        // Apply current sorting
+                        Self::sort_entries_static(&mut new_entries, sort_column, sort_ascending);
+
                         *vac_entries.lock().unwrap() = new_entries;
                     }
                     *status.lock().unwrap() = OperationStatus::Idle;
@@ -308,6 +326,8 @@ impl VacDownloaderApp {
         let vac_entries = self.vac_entries.clone();
         let downloader = self.downloader.clone();
         let needs_update_cache = self.needs_update_cache.clone();
+        let sort_column = self.sort_column;
+        let sort_ascending = self.sort_ascending;
 
         *status.lock().unwrap() = OperationStatus::Downloading {
             current: 1,
@@ -325,8 +345,16 @@ impl VacDownloaderApp {
                     // Refresh the list to update the entry
                     match downloader.list_vacs(None) {
                         Ok(vacs) => {
-                            let new_entries: Vec<VacEntryWithSelection> =
+                            let mut new_entries: Vec<VacEntryWithSelection> =
                                 vacs.into_iter().map(VacEntryWithSelection::new).collect();
+
+                            // Apply current sorting
+                            Self::sort_entries_static(
+                                &mut new_entries,
+                                sort_column,
+                                sort_ascending,
+                            );
+
                             *vac_entries.lock().unwrap() = new_entries;
                         }
                         Err(_) => {}
@@ -363,26 +391,25 @@ impl VacDownloaderApp {
 
     fn sort_entries(&mut self) {
         let mut entries = self.vac_entries.lock().unwrap();
+        Self::sort_entries_static(&mut entries, self.sort_column, self.sort_ascending);
+    }
 
-        match self.sort_column {
+    fn sort_entries_static(
+        entries: &mut Vec<VacEntryWithSelection>,
+        sort_column: SortColumn,
+        sort_ascending: bool,
+    ) {
+        match sort_column {
             SortColumn::Oaci => {
                 entries.sort_by(|a, b| {
                     let cmp = a.entry.oaci.cmp(&b.entry.oaci);
-                    if self.sort_ascending {
-                        cmp
-                    } else {
-                        cmp.reverse()
-                    }
+                    if sort_ascending { cmp } else { cmp.reverse() }
                 });
             }
             SortColumn::City => {
                 entries.sort_by(|a, b| {
                     let cmp = a.entry.city.cmp(&b.entry.city);
-                    if self.sort_ascending {
-                        cmp
-                    } else {
-                        cmp.reverse()
-                    }
+                    if sort_ascending { cmp } else { cmp.reverse() }
                 });
             }
         }
