@@ -29,6 +29,8 @@ pub struct VacDownloaderApp {
     sort_ascending: bool,
     /// Search query for filtering VAC list
     search_query: String,
+    /// Cache of needs_update status for each OACI code
+    needs_update_cache: Arc<Mutex<std::collections::HashMap<String, bool>>>,
 }
 
 impl VacDownloaderApp {
@@ -58,6 +60,7 @@ impl VacDownloaderApp {
             sort_column: SortColumn::Oaci,
             sort_ascending: true,
             search_query: String::new(),
+            needs_update_cache: Arc::new(Mutex::new(std::collections::HashMap::new())),
         };
 
         // Fetch the VAC list on startup
@@ -191,6 +194,7 @@ impl VacDownloaderApp {
         let status = self.status.clone();
         let vac_entries = self.vac_entries.clone();
         let downloader = self.downloader.clone();
+        let needs_update_cache = self.needs_update_cache.clone();
 
         *status.lock().unwrap() = OperationStatus::Downloading {
             current: 1,
@@ -202,6 +206,9 @@ impl VacDownloaderApp {
             // Use sync with specific OACI code to update this entry
             match downloader.sync(Some(&[oaci_code.clone()])) {
                 Ok(_) => {
+                    // Clear the needs_update cache for this entry
+                    needs_update_cache.lock().unwrap().remove(&oaci_code);
+
                     // Refresh the list to update the entry
                     match downloader.list_vacs(None) {
                         Ok(vacs) => {
@@ -216,6 +223,26 @@ impl VacDownloaderApp {
                 Err(e) => {
                     *status.lock().unwrap() =
                         OperationStatus::Error(format!("Update failed: {}", e));
+                }
+            }
+        });
+    }
+
+    fn check_needs_update(&self, oaci_code: String) {
+        let downloader = self.downloader.clone();
+        let needs_update_cache = self.needs_update_cache.clone();
+
+        thread::spawn(move || {
+            let downloader = downloader.lock().unwrap();
+            match downloader.needs_update(&oaci_code) {
+                Ok(needs_update) => {
+                    let mut cache = needs_update_cache.lock().unwrap();
+                    cache.insert(oaci_code, needs_update);
+                }
+                Err(_) => {
+                    // If we can't determine, assume it doesn't need update
+                    let mut cache = needs_update_cache.lock().unwrap();
+                    cache.insert(oaci_code, false);
                 }
             }
         });
@@ -404,6 +431,7 @@ impl eframe::App for VacDownloaderApp {
                 let mut update_oaci: Option<String> = None;
                 let mut delete_oaci: Option<String> = None;
                 let mut need_sort = false;
+                let mut oaci_codes_to_check: Vec<String> = Vec::new();
 
                 if entries.is_empty() {
                     ui.centered_and_justified(|ui| {
@@ -512,9 +540,27 @@ impl eframe::App for VacDownloaderApp {
                                 // Actions column
                                 ui.horizontal(|ui| {
                                     if entry.entry.available_locally {
-                                        // Update button (always shown for local entries)
+                                        // Check if we need to fetch update status
+                                        let needs_update_cache =
+                                            self.needs_update_cache.lock().unwrap();
+                                        let needs_update =
+                                            needs_update_cache.get(&entry.entry.oaci).copied();
+                                        drop(needs_update_cache);
+
+                                        // If we don't have the status yet, mark it for checking
+                                        if needs_update.is_none() {
+                                            oaci_codes_to_check.push(entry.entry.oaci.clone());
+                                        }
+
+                                        // Enable Update button only if we know it needs an update
+                                        let update_enabled =
+                                            !is_busy && needs_update.unwrap_or(false);
+
                                         if ui
-                                            .add_enabled(!is_busy, egui::Button::new("Update"))
+                                            .add_enabled(
+                                                update_enabled,
+                                                egui::Button::new("Update"),
+                                            )
                                             .clicked()
                                         {
                                             update_oaci = Some(entry.entry.oaci.clone());
@@ -537,6 +583,12 @@ impl eframe::App for VacDownloaderApp {
                 if need_sort {
                     self.sort_entries();
                 }
+
+                // Check update status for entries that need it
+                for oaci in oaci_codes_to_check {
+                    self.check_needs_update(oaci);
+                }
+
                 if let Some(oaci) = update_oaci {
                     self.update_vac(oaci);
                 }

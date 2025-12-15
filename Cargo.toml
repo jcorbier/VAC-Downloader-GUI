@@ -10,4 +10,4 @@ serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 dirs = "5.0"
 rfd = "0.15"
-vac_downloader = "0.3.0"
+vac_downloader = "0.4.0"

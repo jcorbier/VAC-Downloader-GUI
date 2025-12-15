@@ -3878,9 +3878,9 @@ dependencies = [
 
 [[package]]
 name = "vac_downloader"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6b621c854e245bf4d9fbf502a6d5a4320454c799f97324e3ab34c03b1612287"
+checksum = "ae550560b53c8111a56cae3944bb3a5d61bbf6ddf063c2afd72ab1339e5acd49"
 dependencies = [
  "anyhow",
  "base64",
