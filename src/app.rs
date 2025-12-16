@@ -94,7 +94,7 @@ impl VacDownloaderApp {
     fn load_icons(ctx: &egui::Context) -> Icons {
         fn load_icon(ctx: &egui::Context, name: &str, bytes: &[u8]) -> egui::TextureHandle {
             let image = image::load_from_memory(bytes)
-                .expect(&format!("Failed to load {} icon", name))
+                .unwrap_or_else(|_| panic!("Failed to load {} icon", name))
                 .to_rgba8();
             let size = [image.width() as usize, image.height() as usize];
             let pixels = image.as_flat_samples();
@@ -337,27 +337,20 @@ impl VacDownloaderApp {
         thread::spawn(move || {
             let downloader = downloader.lock().unwrap();
             // Use sync with specific OACI code to update this entry
-            match downloader.sync(Some(&[oaci_code.clone()])) {
+            match downloader.sync(Some(std::slice::from_ref(&oaci_code))) {
                 Ok(_) => {
                     // Clear the needs_update cache for this entry
                     needs_update_cache.lock().unwrap().remove(&oaci_code);
 
                     // Refresh the list to update the entry
-                    match downloader.list_vacs(None) {
-                        Ok(vacs) => {
-                            let mut new_entries: Vec<VacEntryWithSelection> =
-                                vacs.into_iter().map(VacEntryWithSelection::new).collect();
+                    if let Ok(vacs) = downloader.list_vacs(None) {
+                        let mut new_entries: Vec<VacEntryWithSelection> =
+                            vacs.into_iter().map(VacEntryWithSelection::new).collect();
 
-                            // Apply current sorting
-                            Self::sort_entries_static(
-                                &mut new_entries,
-                                sort_column,
-                                sort_ascending,
-                            );
+                        // Apply current sorting
+                        Self::sort_entries_static(&mut new_entries, sort_column, sort_ascending);
 
-                            *vac_entries.lock().unwrap() = new_entries;
-                        }
-                        Err(_) => {}
+                        *vac_entries.lock().unwrap() = new_entries;
                     }
                     *status.lock().unwrap() = OperationStatus::Idle;
                 }
@@ -395,7 +388,7 @@ impl VacDownloaderApp {
     }
 
     fn sort_entries_static(
-        entries: &mut Vec<VacEntryWithSelection>,
+        entries: &mut [VacEntryWithSelection],
         sort_column: SortColumn,
         sort_ascending: bool,
     ) {
